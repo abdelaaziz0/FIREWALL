@@ -20,8 +20,7 @@ Un pare-feu simple mais efficace écrit en Python, avec une interface web pour l
 
 ```bash
 # Cloner le repository
-git clone https://github.com/votre-username/python-mini-firewall.git
-cd python-mini-firewall
+git clone https://github.com/abdelaaziz0/FIREWALL.git
 
 # Installer les dépendances
 pip install flask netfilterqueue scapy
