@@ -13,23 +13,19 @@ from scapy.all import IP, TCP, UDP, ICMP
 #                   CONFIGURATION
 #####################################################
 
-# Structure de règles (exemple de config basique)
 FIREWALL_RULES = {
-    "block_ips": set(),       # IP à bloquer explicitement
-    "allow_ips": set(),       # IP à autoriser explicitement
-    "block_ports": set(),     # Ports à bloquer (TCP/UDP)
-    "allow_ports": set(),     # Ports à autoriser
-    "block_icmp": False,      # True -> bloquer ICMP (ping)
-    # Seuil de détection de scan de ports :
-    "scan_detection_threshold": 5,   # Nombre de ports différents
-    "scan_time_window": 10,          # Fenêtre de temps en secondes
+    "block_ips": set(),
+    "allow_ips": set(),
+    "block_ports": set(),
+    "allow_ports": set(),
+    "block_icmp": False,
+    "scan_detection_threshold": 5,
+    "scan_time_window": 10,
 }
 
-# Historique des ports sondés par IP pour détection de scan
 scanned_ports_by_ip = defaultdict(set)
 timestamps_by_ip = defaultdict(list)
 
-# Configuration du logging
 logging.basicConfig(
     filename="firewall.log",
     level=logging.INFO,
@@ -43,30 +39,21 @@ logging.basicConfig(
 def process_packet(packet):
     """ Callback pour NetfilterQueue. Analyse et filtre les paquets en fonction des règles. """
     scapy_packet = IP(packet.get_payload())
-
-    # Récupération des infos de base
     src_ip = scapy_packet.src
     dst_ip = scapy_packet.dst
-
-    # (Optionnel) On affiche/log un résumé du paquet
-    proto = scapy_packet.proto  # Numéro de protocole IP
+    proto = scapy_packet.proto 
     logging.info(f"New Packet: {src_ip} -> {dst_ip}, proto={proto}")
-
-    # Vérifier si on a la couche TCP, UDP ou ICMP
     if scapy_packet.haslayer(TCP):
         sport = scapy_packet[TCP].sport
         dport = scapy_packet[TCP].dport
-        # Filtrage des ports
         if should_block_ip_or_port(src_ip, dst_ip, sport, dport, "TCP"):
             packet.drop()
             return
-        # Détection scan de ports
         detect_port_scan(src_ip, dport)
 
     elif scapy_packet.haslayer(UDP):
         sport = scapy_packet[UDP].sport
         dport = scapy_packet[UDP].dport
-        # Filtrage des ports
         if should_block_ip_or_port(src_ip, dst_ip, sport, dport, "UDP"):
             packet.drop()
             return
@@ -76,35 +63,23 @@ def process_packet(packet):
             logging.warning(f"ICMP blocked: {src_ip} -> {dst_ip}")
             packet.drop()
             return
-
-    # S’il arrive jusque-là, on accepte le paquet
     packet.accept()
 
 
 def should_block_ip_or_port(src_ip, dst_ip, sport, dport, protocol):
     """ Détermine si un paquet doit être bloqué selon IP/port/protocol. """
 
-    # 1) IP sur liste noire
     if src_ip in FIREWALL_RULES["block_ips"] or dst_ip in FIREWALL_RULES["block_ips"]:
         logging.warning(f"BLOCK (IP) {src_ip} -> {dst_ip}")
         return True
 
-    # 2) Ports sur liste noire
     if (dport in FIREWALL_RULES["block_ports"]) or (sport in FIREWALL_RULES["block_ports"]):
         logging.warning(f"BLOCK (PORT) {protocol}:{sport}->{dport} IP: {src_ip}->{dst_ip}")
         return True
-
-    # 3) Si la règle est trop stricte, on peut conditionner sur le protocole
-    # (Ex: bloquer seulement TCP/UDP, etc.)
-    # => Tu peux affiner ici selon tes besoins
-
-    # 4) IP ou port explicitement autorisés
     if src_ip in FIREWALL_RULES["allow_ips"] or dst_ip in FIREWALL_RULES["allow_ips"]:
         return False
     if dport in FIREWALL_RULES["allow_ports"] or sport in FIREWALL_RULES["allow_ports"]:
         return False
-
-    # Par défaut, on accepte (ou bloquer si on veut être en mode paranoid)
     return False
 
 
@@ -116,20 +91,14 @@ def detect_port_scan(src_ip, dport):
     """
 
     now = time.time()
-    # Nettoyage des anciens timestamps
     while timestamps_by_ip[src_ip] and (now - timestamps_by_ip[src_ip][0] > FIREWALL_RULES["scan_time_window"]):
         timestamps_by_ip[src_ip].pop(0)
-
-    # On enregistre le timestamp courant
     timestamps_by_ip[src_ip].append(now)
     scanned_ports_by_ip[src_ip].add(dport)
 
-    # Compter le nombre de ports distincts scannés dans la fenêtre de temps
     if len(scanned_ports_by_ip[src_ip]) >= FIREWALL_RULES["scan_detection_threshold"]:
-        # Bloquer l'IP, car on soupçonne un scan
         FIREWALL_RULES["block_ips"].add(src_ip)
         logging.warning(f"Port scan detected from {src_ip}, IP blocked!")
-        # On peut vider la liste pour éviter un re-bannissement constant
         scanned_ports_by_ip[src_ip].clear()
 
 #####################################################
@@ -241,7 +210,6 @@ def toggle_icmp():
 def run_firewall():
     """Démarre le loop NetfilterQueue (bloquant)."""
     nfqueue = NetfilterQueue()
-    # file d’attente 1 => correspond à --queue-num 1 dans iptables
     nfqueue.bind(1, process_packet)
     try:
         logging.info("Firewall is running ...")
@@ -253,12 +221,10 @@ def run_firewall():
 
 def run_flask():
     """Démarre l'interface web Flask en parallèle."""
-    # Démarre le serveur sur localhost:5000
     app.run(host="0.0.0.0", port=5000, debug=False)
 
 
 if __name__ == "__main__":
-    # Lancement en parallèle du firewall et de Flask
     firewall_thread = threading.Thread(target=run_firewall)
     firewall_thread.start()
 
